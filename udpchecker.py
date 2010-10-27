@@ -53,7 +53,7 @@ class UDPChecker:
             while True:
                 for addr in self.times:
                     timeout = int(time.time()) - int(self.times.get(addr))
-                    if timeout > 15:
+                    if timeout > 60:
                         self.log.debug("No multicast on %s %s last %s seconds" % (addr, self.clist.get(addr), timeout))
                 time.sleep(60)
         except KeyboardInterrupt:
@@ -90,9 +90,6 @@ class UDPChecker:
         self.times[addr] = int(time.time())
         if self.warnings[addr] > 0:
             self.log.warning("Recovery of multicast on %s %s" % (addr, chan))
-            subject = "VIDEON Recovery for channel %s" % chan
-            msg = "Recovery of multicast receiving on %s for channel %s" % (addr, chan)
-            self.sendMail(subject, msg, GMAIL_TO_ADDR)
             self.warnings[addr] = 0
 
 
@@ -101,6 +98,7 @@ class UDPChecker:
             self.c = checker
             self.log = self.c.log
             self.addr = addr
+            self.chan = self.c.clist.get(addr)
             threading.Thread.__init__(self)
             self.kill_received = False
 
@@ -121,7 +119,7 @@ class UDPChecker:
                         data, addr = sock.recvfrom( 1024 )
                         self.c.listenerCb(self.addr)
                 except socket.timeout:
-                        self.c.sendWarning(self.addr)
+                    self.log.debug("Socket timeout on %s %s" % (self.addr, self.chan))
 
 if __name__ == "__main__":
     UDPChecker()
