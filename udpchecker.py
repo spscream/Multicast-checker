@@ -9,6 +9,7 @@ import logging
 import logging.handlers
 import smtplib
 import cherrypy
+import sys
 from email.utils import COMMASPACE
 from email.MIMEText import MIMEText
 
@@ -28,12 +29,20 @@ class UDPChecker:
         self.clist = {}
         # Add some logging
         self.log = logging.getLogger('UDPChecker')
+        # Set logfile handler
         self.loghandler = logging.handlers.RotatingFileHandler("udpchecker.log", 
                     maxBytes=500000,
                     backupCount=10)
+        # Set console handler
+        self.consolehandler = logging.StreamHandler()
         self.logformat = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        # Set Formatter to the handlers
         self.loghandler.setFormatter(self.logformat)
+        self.consolehandler.setFormatter(self.logformat)
+        # Add handlers to the log object
+        self.log.addHandler(self.consolehandler)
         self.log.addHandler(self.loghandler)
+        # set logging verbosity
         self.log.setLevel(logging.DEBUG)
 
         # Start to work
@@ -48,6 +57,11 @@ class UDPChecker:
             t = self.UDPListener(addr, self)
             threads.append(t)
             t.start()
+
+        # Start Notify Thread
+        notifier = self.UDPNotifier(self)
+        threads.append(notifier)
+        notifier.start()
 
         try:
             while True:
@@ -70,7 +84,11 @@ class UDPChecker:
             self.log.warning("Timeout, send warning!!! %s %s" % (addr, chan))
             subject = "VIDEON Warning for channel %s" % chan
             msg = "Timeout of multicast receiving on %s for channel %s" % (addr, chan)
-            self.sendMail(subject, msg, GMAIL_TO_ADDR)
+            #self.sendMail(subject, msg, GMAIL_TO_ADDR)
+
+    def setWarning(self, addr):
+        chan = self.clist.get(addr)
+        self.warnings[addr] += 1
 
     def sendMail(self, subject, message, to_addr=GMAIL_TO_ADDR, from_addr=GMAIL_LOGIN):
         msg = MIMEText(message)
@@ -107,7 +125,7 @@ class UDPChecker:
 
         def listen(self):
             udpaddr, udpport = self.addr.split(":")
-            self.log.debug("Start listening: %s" % self.addr)
+            #self.log.debug("Start listening: %s" % self.addr)
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((udpaddr, int(udpport)))
@@ -119,7 +137,22 @@ class UDPChecker:
                         data, addr = sock.recvfrom( 1024 )
                         self.c.listenerCb(self.addr)
                 except socket.timeout:
+                    self.c.setWarning(self.addr)
                     self.log.debug("Socket timeout on %s %s" % (self.addr, self.chan))
+
+    class UDPNotifier(threading.Thread):
+        def __init__(self, checker):
+            self.c = checker
+            self.log = self.c.log
+            threading.Thread.__init__(self)
+            self.kill_received = False
+
+        def run(self):
+            self.log.debug("Notifier started")
+            while not self.kill_received:
+               print self.c.warnings
+               time.sleep(10)
+            self.log.debug("Notifier stopped")
 
 if __name__ == "__main__":
     UDPChecker()
