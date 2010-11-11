@@ -10,6 +10,8 @@ import logging.handlers
 import smtplib
 import cherrypy
 import sys
+import SocketServer
+import SimpleHTTPServer
 from email.utils import COMMASPACE
 from email.MIMEText import MIMEText
 
@@ -54,14 +56,19 @@ class UDPChecker:
             self.times[addr] = int(time.time())
             self.clist[addr] = channel
             self.warnings[addr] = 0
-            t = self.UDPListener(addr, self)
+            t = UDPListener(addr, self)
             threads.append(t)
             t.start()
 
         # Start Notify Thread
-        notifier = self.UDPNotifier(self)
+        notifier = UDPNotifier(self)
         threads.append(notifier)
         notifier.start()
+
+        # Start Monitor Thread
+        monitor = UDPHttpMonitor(self)
+        threads.append(monitor)
+        monitor.start()
 
         try:
             while True:
@@ -73,7 +80,7 @@ class UDPChecker:
         except KeyboardInterrupt:
             self.log.debug("Ctrl-c received! Sending kill to threads...")
             for t in threads:
-                t.kill_received = True
+                t.shutdown()
 
     def sendWarning(self, addr):
         chan = self.clist.get(addr)
@@ -109,50 +116,80 @@ class UDPChecker:
         if self.warnings[addr] > 0:
             self.log.warning("Recovery of multicast on %s %s" % (addr, chan))
             self.warnings[addr] = 0
+                    
+class UDPCheckerThread(threading.Thread):
+    def __init__(self, checker):
+        self.c = checker
+        self.log = self.c.log
+        threading.Thread.__init__(self)
+        self.kill_received = False
+        
+    def run(self):
+        self.log.debug("Thread %s started" % self.__class__.__name__) 
+        while not self.kill_received:
+            self.work()
+        self.log.debug("Thread %s stopped" % self.__class__.__name__)
+        
+    def work(self):
+        pass
+        
+    def shutdown(self):
+        self.kill_received = True
 
+class UDPListener(UDPCheckerThread):
+    def __init__(self, addr, checker):
+        self.addr = addr
+        self.chan = checker.clist.get(addr)
+        UDPCheckerThread.__init__(self, checker)
 
-    class UDPListener(threading.Thread):
-        def __init__(self, addr, checker):
-            self.c = checker
-            self.log = self.c.log
-            self.addr = addr
-            self.chan = self.c.clist.get(addr)
-            threading.Thread.__init__(self)
-            self.kill_received = False
+    def work(self):
+        self.listen()
 
-        def run(self):
-            self.listen()
+    def listen(self):
+        udpaddr, udpport = self.addr.split(":")
+        #self.log.debug("Start listening: %s" % self.addr)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((udpaddr, int(udpport)))
+        mreq = struct.pack("4sl", socket.inet_aton(udpaddr), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        while not self.kill_received:
+            try:
+                sock.settimeout(5)
+                data, addr = sock.recvfrom( 1024 )
+                self.c.listenerCb(self.addr)
+            except socket.timeout:
+                self.c.setWarning(self.addr)
+                self.log.debug("Socket timeout on %s %s" % (self.addr, self.chan))
 
-        def listen(self):
-            udpaddr, udpport = self.addr.split(":")
-            #self.log.debug("Start listening: %s" % self.addr)
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((udpaddr, int(udpport)))
-            mreq = struct.pack("4sl", socket.inet_aton(udpaddr), socket.INADDR_ANY)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-            while not self.kill_received:
-                try:
-                        sock.settimeout(5)
-                        data, addr = sock.recvfrom( 1024 )
-                        self.c.listenerCb(self.addr)
-                except socket.timeout:
-                    self.c.setWarning(self.addr)
-                    self.log.debug("Socket timeout on %s %s" % (self.addr, self.chan))
+           
+class UDPHttpMonitor(UDPCheckerThread):
+    def __init__(self, checker):
+        PORT = 8008
+        self.handler = SimpleHTTPServer.SimpleHTTPRequestHandler
+        self.httpd = SocketServer.TCPServer(("", PORT), self.handler)
+        UDPCheckerThread.__init__(self, checker)
+            
+    def work(self):
+        self.httpd.handle_request()
+    
+    def shutdown(self):
+        self.kill_received = True
+        self.httpd.server_close()
+        
+class UDPNotifier(UDPCheckerThread):
+    def work(self):
+        self.gen_html()
+        time.sleep(5)
+    
+        
+    def gen_html(self, html):
+        self.channel_list = ""
+        self.output_html = "<html>" \
+            "<head><title>Channel Monitoring</title></head>" \
+            "<body><table>" \
+        pass
 
-    class UDPNotifier(threading.Thread):
-        def __init__(self, checker):
-            self.c = checker
-            self.log = self.c.log
-            threading.Thread.__init__(self)
-            self.kill_received = False
-
-        def run(self):
-            self.log.debug("Notifier started")
-            while not self.kill_received:
-               print self.c.warnings
-               time.sleep(10)
-            self.log.debug("Notifier stopped")
 
 if __name__ == "__main__":
     UDPChecker()
