@@ -181,12 +181,23 @@ class UDPNotifier(UDPCheckerThread):
         time.sleep(5)
 
 
-    def gen_html(self, html):
+    def gen_html(self):
         self.channel_list = ""
-        self.output_html = "<html>"\
-                           "<head><title>Channel Monitoring</title></head>"\
-                           "<body><table>"
-        pass
+        self.output_html = "<html>\r\n"\
+                           "<head><title>Channel Monitoring</title></head>\r\n"\
+                           "<body>\r\n<table>\r\n"
+        for i in self.c.warnings:
+            status = self.c.warnings.get(i)
+            channel = self.c.clist.get(i)
+            if status > 0:
+                self.channel_list += "<tr><td>%s</td><td>ERROR</td></tr>" % channel
+            else:
+                self.channel_list += "<tr><td>%s</td><td>PLAY</td></tr>" % channel
+        self.output_html += self.channel_list
+        self.output_html += "</table>\r\n</body>\r\n</html>\r\n"
+        f = open('index.html', 'w')
+        f.write(self.output_html)
+        f.close()
 
 
 if __name__ == "__main__":
