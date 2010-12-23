@@ -8,8 +8,6 @@ import threading
 import logging
 import logging.handlers
 import smtplib
-import cherrypy
-import sys
 import SocketServer
 import SimpleHTTPServer
 from email.utils import COMMASPACE
@@ -32,9 +30,9 @@ class UDPChecker:
         # Add some logging
         self.log = logging.getLogger('UDPChecker')
         # Set logfile handler
-        self.loghandler = logging.handlers.RotatingFileHandler("udpchecker.log", 
-                    maxBytes=500000,
-                    backupCount=10)
+        self.loghandler = logging.handlers.RotatingFileHandler("udpchecker.log",
+                                                               maxBytes=500000,
+                                                               backupCount=10)
         # Set console handler
         self.consolehandler = logging.StreamHandler()
         self.logformat = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -52,7 +50,7 @@ class UDPChecker:
 
     def work(self):
         threads = []
-        for [channel,addr] in self.channels:
+        for [channel, addr] in self.channels:
             self.times[addr] = int(time.time())
             self.clist[addr] = channel
             self.warnings[addr] = 0
@@ -102,7 +100,7 @@ class UDPChecker:
         msg['Subject'] = subject
         msg['From'] = from_addr
         msg['To'] = COMMASPACE.join(to_addr)
-        server = smtplib.SMTP('smtp.gmail.com',587)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
         server.ehlo()
         server.starttls()
         server.ehlo()
@@ -116,23 +114,23 @@ class UDPChecker:
         if self.warnings[addr] > 0:
             self.log.warning("Recovery of multicast on %s %s" % (addr, chan))
             self.warnings[addr] = 0
-                    
+
 class UDPCheckerThread(threading.Thread):
     def __init__(self, checker):
         self.c = checker
         self.log = self.c.log
         threading.Thread.__init__(self)
         self.kill_received = False
-        
+
     def run(self):
-        self.log.debug("Thread %s started" % self.__class__.__name__) 
+        self.log.debug("Thread %s started" % self.__class__.__name__)
         while not self.kill_received:
             self.work()
         self.log.debug("Thread %s stopped" % self.__class__.__name__)
-        
+
     def work(self):
         pass
-        
+
     def shutdown(self):
         self.kill_received = True
 
@@ -156,38 +154,38 @@ class UDPListener(UDPCheckerThread):
         while not self.kill_received:
             try:
                 sock.settimeout(5)
-                data, addr = sock.recvfrom( 1024 )
+                data, addr = sock.recvfrom(1024)
                 self.c.listenerCb(self.addr)
             except socket.timeout:
                 self.c.setWarning(self.addr)
                 self.log.debug("Socket timeout on %s %s" % (self.addr, self.chan))
 
-           
+
 class UDPHttpMonitor(UDPCheckerThread):
     def __init__(self, checker):
         PORT = 8008
         self.handler = SimpleHTTPServer.SimpleHTTPRequestHandler
         self.httpd = SocketServer.TCPServer(("", PORT), self.handler)
         UDPCheckerThread.__init__(self, checker)
-            
+
     def work(self):
         self.httpd.handle_request()
-    
+
     def shutdown(self):
         self.kill_received = True
         self.httpd.server_close()
-        
+
 class UDPNotifier(UDPCheckerThread):
     def work(self):
         self.gen_html()
         time.sleep(5)
-    
-        
+
+
     def gen_html(self, html):
         self.channel_list = ""
-        self.output_html = "<html>" \
-            "<head><title>Channel Monitoring</title></head>" \
-            "<body><table>" \
+        self.output_html = "<html>"\
+                           "<head><title>Channel Monitoring</title></head>"\
+                           "<body><table>"
         pass
 
 
